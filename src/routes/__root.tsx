@@ -77,10 +77,10 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "ELLSound — Player de Música" },
+      { title: "ELLSOUND — Player de Música" },
       { name: "description", content: "Player de música premium com áudio do YouTube e músicas do seu aparelho." },
-      { name: "author", content: "ELLSound" },
-      { property: "og:title", content: "ELLSound — Player de Música" },
+      { name: "author", content: "ELLSOUND" },
+      { property: "og:title", content: "ELLSOUND — Player de Música" },
       { property: "og:description", content: "Player de música premium com áudio do YouTube e músicas do seu aparelho." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
