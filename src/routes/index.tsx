@@ -73,10 +73,10 @@ import { fetchProfile, touchLogin, isSubscriptionDenied, type Profile } from "@/
 export const Route = createFileRoute("/")({
   head: () => ({
     meta: [
-      { title: "ELLSound — música com áudio do YouTube" },
+      { title: "ELL MUSIC — Player de Música" },
       {
         name: "description",
-        content: "Player de música premium com interface inspirada no Spotify e áudio do YouTube.",
+        content: "Player de música premium com áudio do YouTube e músicas do seu aparelho.",
       },
     ],
   }),
@@ -424,7 +424,7 @@ function Index() {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: track.title,
         artist: track.artist,
-        album: track.album || "ELLSound",
+        album: track.album || "ELL MUSIC",
         artwork: [{ src: track.artwork || "", sizes: "512x512", type: "image/jpeg" }],
       });
       navigator.mediaSession.setActionHandler("play", () => setPlaying(true));
@@ -986,7 +986,7 @@ function Index() {
                 <Headphones className="size-5 text-primary-foreground" />
               </div>
               <h1 className="text-xl font-bold tracking-wider bg-gradient-to-r from-foreground to-primary bg-clip-text text-transparent">
-                ELLSound
+                ELL MUSIC
               </h1>
             </div>
           </div>
@@ -1053,7 +1053,7 @@ function Index() {
           <div className="flex items-center gap-2">
             {currentTab === "home" && (
               <span className="md:hidden text-lg font-bold bg-gradient-to-r from-foreground to-primary bg-clip-text text-transparent">
-                ELLSound
+                ELL MUSIC
               </span>
             )}
           </div>
@@ -2304,7 +2304,7 @@ function Index() {
                 <Headphones className="size-6 text-primary" />
               </div>
               <h3 className="text-xl font-bold text-foreground">
-                {authMode === "login" ? "Bem-vindo ao ELLSound" : "Crie sua conta"}
+                {authMode === "login" ? "Bem-vindo ao ELL MUSIC" : "Crie sua conta"}
               </h3>
               <p className="text-sm text-muted-foreground mt-1">
                 {authMode === "login"

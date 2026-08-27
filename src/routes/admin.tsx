@@ -22,7 +22,7 @@ import { Input } from "@/components/ui/input";
 
 export const Route = createFileRoute("/admin")({
   head: () => ({
-    meta: [{ title: "Painel Admin — ELLSound" }],
+    meta: [{ title: "Painel Admin — ELL MUSIC" }],
   }),
   component: AdminPage,
 });
