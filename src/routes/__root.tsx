@@ -84,13 +84,13 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
       { property: "og:description", content: "Player de música premium com áudio do YouTube e músicas do seu aparelho." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@ELLSound" },
+      { name: "twitter:site", content: "@ELLSOUND" },
       // PWA
       { name: "theme-color", content: "#e84036" },
       { name: "mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
-      { name: "apple-mobile-web-app-title", content: "ELLSound" },
+      { name: "apple-mobile-web-app-title", content: "ELLSOUND" },
     ],
     links: [
       {
