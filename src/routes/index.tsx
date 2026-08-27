@@ -619,6 +619,71 @@ function Index() {
     skip(1);
   };
 
+  // Wake Lock - impede tela desligar durante reprodução
+  const wakeLockRef = useRef<WakeLockSentinel | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    async function requestWakeLock() {
+      if (!playing || cancelled) {
+        if (wakeLockRef.current) {
+          await wakeLockRef.current.release();
+          wakeLockRef.current = null;
+        }
+        return;
+      }
+      try {
+        if ("wakeLock" in navigator) {
+          wakeLockRef.current = await navigator.wakeLock.request("screen");
+          wakeLockRef.current.addEventListener("release", () => {
+            wakeLockRef.current = null;
+          });
+        }
+      } catch (err) {
+        console.warn("Wake Lock falhou:", err);
+      }
+    }
+    requestWakeLock();
+    return () => {
+      cancelled = true;
+      if (wakeLockRef.current) {
+        wakeLockRef.current.release();
+        wakeLockRef.current = null;
+      }
+    };
+  }, [playing]);
+
+  // Media Session position state (seek bar na lock screen)
+  useEffect(() => {
+    if (!("mediaSession" in navigator) || !playing) return;
+    const updatePosition = () => {
+      navigator.mediaSession.setPositionState({
+        duration: progress.duration || 0,
+        playbackRate: 1,
+        position: progress.current || 0,
+      });
+    };
+    const timer = setInterval(updatePosition, 1000);
+    updatePosition();
+    return () => clearInterval(timer);
+  }, [playing, progress]);
+
+  // Visibility change - tenta retomar playback ao voltar do background
+  useEffect(() => {
+    if (!playing) return;
+    function onVisibilityChange() {
+      if (document.visibilityState === "visible" && videoId && seekRef.current) {
+        // Pequeno delay para o player reconectar
+        setTimeout(() => {
+          if (seekRef.current) {
+            seekRef.current(progress.current || 0);
+          }
+        }, 100);
+      }
+    }
+    document.addEventListener("visibilitychange", onVisibilityChange);
+    return () => document.removeEventListener("visibilitychange", onVisibilityChange);
+  }, [playing, videoId, progress.current]);
+
   // ===== Músicas locais (aparelho) =====
   const scanLocalFiles = (files: FileList | File[]) => {
     const audios = Array.from(files).filter(
