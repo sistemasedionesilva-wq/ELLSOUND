@@ -77,20 +77,20 @@ export const Route = createRootRouteWithContext<{ queryClient: QueryClient }>()(
     meta: [
       { charSet: "utf-8" },
       { name: "viewport", content: "width=device-width, initial-scale=1" },
-      { title: "ELLSOUND — Player de Música" },
+      { title: "ELL MUSIC — Player de Música" },
       { name: "description", content: "Player de música premium com áudio do YouTube e músicas do seu aparelho." },
-      { name: "author", content: "ELLSOUND" },
-      { property: "og:title", content: "ELLSOUND — Player de Música" },
+      { name: "author", content: "ELL MUSIC" },
+      { property: "og:title", content: "ELL MUSIC — Player de Música" },
       { property: "og:description", content: "Player de música premium com áudio do YouTube e músicas do seu aparelho." },
       { property: "og:type", content: "website" },
       { name: "twitter:card", content: "summary_large_image" },
-      { name: "twitter:site", content: "@ELLSOUND" },
+      { name: "twitter:site", content: "@ELL_MUSIC" },
       // PWA
       { name: "theme-color", content: "#e84036" },
       { name: "mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-capable", content: "yes" },
       { name: "apple-mobile-web-app-status-bar-style", content: "black-translucent" },
-      { name: "apple-mobile-web-app-title", content: "ELLSOUND" },
+      { name: "apple-mobile-web-app-title", content: "ELL MUSIC" },
     ],
     links: [
       {
