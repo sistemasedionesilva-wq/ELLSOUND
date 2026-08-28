@@ -1,5 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
 import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
@@ -1019,38 +1019,40 @@ function Index() {
     <div className="flex h-[100dvh] flex-col bg-background text-foreground font-sans overflow-hidden select-none">
       <Toaster theme="dark" position="bottom-right" richColors />
 
-      {/* Native Audio Player (Backend Stream) - Background Audio Support */}
-      {playerSource === "native" && nativeAudioSrc && (
-        <NativeAudioPlayer
-          src={nativeAudioSrc}
-          playing={playing}
-          volume={volume}
-          onProgress={({ current, duration }) => setProgress({ current, duration })}
-          onEnded={handleAudioEnded}
-          onPlayStarted={() => setUserRequestedPlay(false)}
-          onError={(err) => {
-            console.error('Native audio error:', err);
-            toast.error('Erro no player nativo, tentando YouTube...');
-            setPlayerSource("youtube");
-            setNativeAudioSrc(null);
-          }}
-        />
-      )}
+      <Suspense fallback={null}>
+        {/* Native Audio Player (Backend Stream) - Background Audio Support */}
+        {playerSource === "native" && nativeAudioSrc && (
+          <NativeAudioPlayer
+            src={nativeAudioSrc}
+            playing={playing}
+            volume={volume}
+            onProgress={({ current, duration }) => setProgress({ current, duration })}
+            onEnded={handleAudioEnded}
+            onPlayStarted={() => setUserRequestedPlay(false)}
+            onError={(err) => {
+              console.error('Native audio error:', err);
+              toast.error('Erro no player nativo, tentando YouTube...');
+              setPlayerSource("youtube");
+              setNativeAudioSrc(null);
+            }}
+          />
+        )}
 
-      {/* YouTube Audio Player (Fallback) - MUST be rendered for playback to work */}
-      {playerSource === "youtube" && videoId && (
-        <YouTubeAudio
-          videoId={videoId}
-          playing={playing}
-          volume={volume}
-          onProgress={({ current, duration }) => setProgress({ current, duration })}
-          onEnded={handleAudioEnded}
-          unlockRef={unlockRef}
-          seekRef={seekRef}
-          userRequestedPlay={userRequestedPlay}
-          onPlayStarted={() => setUserRequestedPlay(false)}
-        />
-      )}
+        {/* YouTube Audio Player (Fallback) - MUST be rendered for playback to work */}
+        {playerSource === "youtube" && videoId && (
+          <YouTubeAudio
+            videoId={videoId}
+            playing={playing}
+            volume={volume}
+            onProgress={({ current, duration }) => setProgress({ current, duration })}
+            onEnded={handleAudioEnded}
+            unlockRef={unlockRef}
+            seekRef={seekRef}
+            userRequestedPlay={userRequestedPlay}
+            onPlayStarted={() => setUserRequestedPlay(false)}
+          />
+        )}
+      </Suspense>
 
       {/* Áudio local (arquivos do aparelho) */}
       <audio
