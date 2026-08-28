@@ -43,6 +43,7 @@ import { Input } from "@/components/ui/input";
 import { Slider } from "@/components/ui/slider";
 import { Button } from "@/components/ui/button";
 import { YouTubeAudio } from "@/components/YouTubeAudio";
+import { NativeAudioPlayer } from "@/components/NativeAudioPlayer";
 import {
   findYouTubeAudio,
   getHomeShelves,
@@ -256,7 +257,8 @@ function Index() {
   };
   const [localTracks, setLocalTracks] = useState<LocalTrack[]>([]);
   const [localSrc, setLocalSrc] = useState<string | null>(null);
-  const [playerSource, setPlayerSource] = useState<"youtube" | "local">("youtube");
+  const [playerSource, setPlayerSource] = useState<"youtube" | "local" | "native">("youtube");
+  const [nativeAudioSrc, setNativeAudioSrc] = useState<string | null>(null);
   const localAudioRef = useRef<HTMLAudioElement | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const folderInputRef = useRef<HTMLInputElement>(null);
@@ -540,8 +542,9 @@ function Index() {
   // Playback Control
   const current = queue[index] ?? null;
 
-  // Faixa ativa no player (YouTube ou arquivo local do aparelho)
+  // Faixa ativa no player (YouTube, nativo ou arquivo local do aparelho)
   const activeLocal = playerSource === "local";
+  const activeNative = playerSource === "native";
   const activeTrack: { id: string; title: string; artist: string; artwork?: string } | null =
     activeLocal ? localCurrent : current;
   const activeSkip = (delta: number) => (activeLocal ? localSkip(delta) : skip(delta));
@@ -561,7 +564,7 @@ function Index() {
       }
       // Mark that user explicitly requested playback (for YouTube gesture unlock)
       setUserRequestedPlay(true);
-      setPlayerSource("youtube");
+      setPlayerSource("native");
       addToRecentlyPlayed(track);
       const nextQueue = list ?? [track];
       setQueue(nextQueue);
@@ -576,11 +579,17 @@ function Index() {
       setPlaying(false);
       setProgress({ current: 0, duration: 0 });
 
+      // Try native backend stream first
+      const backendUrl = import.meta.env.VITE_STREAM_BACKEND_URL || 'https://ellmusic-stream.onrender.com';
+      const streamUrl = `${backendUrl}/api/stream/${track.id}`;
+      setNativeAudioSrc(streamUrl);
+      setPlaying(true);
+      setupMediaSession(track);
+
+      // Fallback to YouTube iframe if native fails
       audioFn({ data: { title: track.title, artist: track.artist } }).then((res) => {
         if (res.videoId) {
           setVideoId(res.videoId);
-          setPlaying(true);
-          setupMediaSession(track);
         }
       });
     },
@@ -1010,8 +1019,26 @@ function Index() {
     <div className="flex h-[100dvh] flex-col bg-background text-foreground font-sans overflow-hidden select-none">
       <Toaster theme="dark" position="bottom-right" richColors />
 
-      {/* YouTube Audio Player - MUST be rendered for playback to work */}
-      {videoId && (
+      {/* Native Audio Player (Backend Stream) - Background Audio Support */}
+      {playerSource === "native" && nativeAudioSrc && (
+        <NativeAudioPlayer
+          src={nativeAudioSrc}
+          playing={playing}
+          volume={volume}
+          onProgress={({ current, duration }) => setProgress({ current, duration })}
+          onEnded={handleAudioEnded}
+          onPlayStarted={() => setUserRequestedPlay(false)}
+          onError={(err) => {
+            console.error('Native audio error:', err);
+            toast.error('Erro no player nativo, tentando YouTube...');
+            setPlayerSource("youtube");
+            setNativeAudioSrc(null);
+          }}
+        />
+      )}
+
+      {/* YouTube Audio Player (Fallback) - MUST be rendered for playback to work */}
+      {playerSource === "youtube" && videoId && (
         <YouTubeAudio
           videoId={videoId}
           playing={playing}
