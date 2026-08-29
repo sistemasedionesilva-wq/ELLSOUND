@@ -1,6 +1,5 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
-import { useServerFn } from "@tanstack/react-start";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import {
   Home,
@@ -48,7 +47,6 @@ import {
   findYouTubeAudio,
   getHomeShelves,
   searchTracks,
-  getTopTrending,
   type Track,
 } from "@/lib/music.functions";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
@@ -135,11 +133,10 @@ function TrackCard({
         <div className="absolute top-2 right-2 flex flex-col gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-300 z-10">
           <button
             onClick={onLikeToggle}
-            className={`flex size-8 items-center justify-center rounded-full backdrop-blur-md transition-all active:scale-95 ${
-              isLiked
-                ? "bg-destructive/20 text-destructive hover:bg-destructive/30"
-                : "bg-black/60 text-white hover:bg-black/80"
-            }`}
+            className={`flex size-8 items-center justify-center rounded-full backdrop-blur-md transition-all active:scale-95 ${isLiked
+              ? "bg-destructive/20 text-destructive hover:bg-destructive/30"
+              : "bg-black/60 text-white hover:bg-black/80"
+              }`}
           >
             <Heart className={`size-4 ${isLiked ? "fill-current" : ""}`} />
           </button>
@@ -160,10 +157,6 @@ function TrackCard({
 }
 
 function Index() {
-  const homeFn = useServerFn(getHomeShelves);
-  const searchFn = useServerFn(searchTracks);
-  const audioFn = useServerFn(findYouTubeAudio);
-  const trendingFn = useServerFn(getTopTrending);
 
   // States
   const [term, setTerm] = useState("");
@@ -333,17 +326,38 @@ function Index() {
   }, [term]);
 
   // Queries
-  const home = useQuery({ queryKey: ["home"], queryFn: () => homeFn({}) });
+  const home = useQuery({ queryKey: ["home"], queryFn: () => getHomeShelves() });
   const results = useQuery({
     queryKey: ["search", submitted],
-    queryFn: () => searchFn({ data: { query: submitted } }),
+    queryFn: () => searchTracks({ query: submitted }),
     enabled: submitted.trim().length > 0,
   });
 
-  // Em alta agora - iTunes RSS
+  // Em alta agora — busca direto do cliente para evitar CORS
   const trending = useQuery({
     queryKey: ["trending"],
-    queryFn: () => trendingFn({ data: { limit: 20 } }),
+    staleTime: 1000 * 60 * 30, // cache 30 min
+    queryFn: async () => {
+      try {
+        const res = await fetch(
+          "https://itunes.apple.com/search?term=top+hits+2024&media=music&entity=song&country=br&limit=20&lang=pt_br",
+          { headers: { Accept: "application/json" } }
+        );
+        if (!res.ok) throw new Error("iTunes error");
+        const data = await res.json();
+        return (data.results ?? []).map((r: any) => ({
+          id: String(r.trackId),
+          title: r.trackName ?? "",
+          artist: r.artistName ?? "",
+          album: r.collectionName ?? "",
+          artwork: (r.artworkUrl100 ?? "").replace("100x100bb", "600x600bb"),
+          previewUrl: r.previewUrl ?? null,
+          durationMs: r.trackTimeMillis ?? 0,
+        }));
+      } catch {
+        return [];
+      }
+    },
   });
 
   // Músicas Curtidas (Favoritos)
@@ -418,7 +432,7 @@ function Index() {
   });
 
   // Ref para skip — quebra referência circular com setupMediaSession
-  const skipRef = useRef<(delta: number) => void>(() => {});
+  const skipRef = useRef<(delta: number) => void>(() => { });
 
   // Media Session para rodar em segundo plano
   const setupMediaSession = useCallback((track: Track) => {
@@ -564,7 +578,6 @@ function Index() {
       }
       // Mark that user explicitly requested playback (for YouTube gesture unlock)
       setUserRequestedPlay(true);
-      setPlayerSource("native");
       addToRecentlyPlayed(track);
       const nextQueue = list ?? [track];
       setQueue(nextQueue);
@@ -579,21 +592,22 @@ function Index() {
       setPlaying(false);
       setProgress({ current: 0, duration: 0 });
 
-      // Try native backend stream first
-      const backendUrl = import.meta.env.VITE_STREAM_BACKEND_URL || 'https://ellmusic-stream.onrender.com';
-      const streamUrl = `${backendUrl}/api/stream/${track.id}`;
-      setNativeAudioSrc(streamUrl);
-      setPlaying(true);
-      setupMediaSession(track);
-
-      // Fallback to YouTube iframe if native fails
-      audioFn({ data: { title: track.title, artist: track.artist } }).then((res) => {
+      // Buscar vídeo do YouTube e tocar
+      try {
+        const res = await findYouTubeAudio({ title: track.title, artist: track.artist });
         if (res.videoId) {
           setVideoId(res.videoId);
+          setPlayerSource("youtube");
+          setPlaying(true);
+          setupMediaSession(track);
+        } else {
+          toast.error("Música não encontrada");
         }
-      });
+      } catch {
+        toast.error("Erro ao buscar música");
+      }
     },
-    [audioFn, setupMediaSession, addToRecentlyPlayed],
+    [setupMediaSession, addToRecentlyPlayed],
   );
 
   const skip = useCallback(
@@ -865,7 +879,7 @@ function Index() {
       return;
     }
     if (playing) {
-      el.play().catch(() => {});
+      el.play().catch(() => { });
     } else {
       el.pause();
     }
@@ -889,7 +903,7 @@ function Index() {
     let cancelled = false;
     setIsGenreSearchLoading(true);
 
-    searchFn({ data: { query: currentGenre } })
+    searchTracks({ query: currentGenre })
       .then((tracks) => {
         if (!cancelled) {
           setGenreSearchResults(tracks);
@@ -906,7 +920,7 @@ function Index() {
     return () => {
       cancelled = true;
     };
-  }, [currentGenre, searchFn]);
+  }, [currentGenre]);
 
   const filteredHomeTracks = useMemo(() => {
     if (currentGenre === "Todos") {
@@ -1031,7 +1045,6 @@ function Index() {
             onPlayStarted={() => setUserRequestedPlay(false)}
             onError={(err) => {
               console.error('Native audio error:', err);
-              toast.error('Erro no player nativo, tentando YouTube...');
               setPlayerSource("youtube");
               setNativeAudioSrc(null);
             }}
@@ -1068,9 +1081,8 @@ function Index() {
       />
 
       <div
-        className={`flex min-h-0 flex-1 gap-2 p-2 ${
-          showMiniPlayer ? "pb-36 md:pb-28 lg:pb-24" : ""
-        }`}
+        className={`flex min-h-0 flex-1 gap-2 p-2 ${showMiniPlayer ? "pb-36 md:pb-28 lg:pb-24" : ""
+          }`}
       >
         {/* Desktop Sidebar (Hide on Mobile) */}
         <aside className="hidden md:flex w-68 shrink-0 flex-col gap-2 mt-14">
@@ -1116,11 +1128,10 @@ function Index() {
                     setSelectedPlaylistId(null);
                     setFullscreenPlayer(false);
                   }}
-                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 font-medium transition-all duration-200 ${
-                    currentTab === tab
-                      ? "bg-primary/15 text-primary shadow-[0_0_0_1px]_theme(colors.primary/30)"
-                      : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
-                  }`}
+                  className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 font-medium transition-all duration-200 ${currentTab === tab
+                    ? "bg-primary/15 text-primary shadow-[0_0_0_1px]_theme(colors.primary/30)"
+                    : "text-muted-foreground hover:text-foreground hover:bg-accent/50"
+                    }`}
                 >
                   <Icon className="size-4.5" />
                   {label}
@@ -1311,11 +1322,10 @@ function Index() {
                       <button
                         key={id}
                         onClick={() => setCurrentGenre(id)}
-                        className={`flex items-center gap-2 px-4 py-2 rounded-xl whitespace-nowrap transition-all duration-300 ${
-                          currentGenre === id
-                            ? "bg-primary text-primary-foreground shadow-glow border border-primary/30"
-                            : "glass text-muted-foreground hover:text-foreground hover:bg-accent/50 hover:border-border/50 border border-border/30"
-                        }`}
+                        className={`flex items-center gap-2 px-4 py-2 rounded-xl whitespace-nowrap transition-all duration-300 ${currentGenre === id
+                          ? "bg-primary text-primary-foreground shadow-glow border border-primary/30"
+                          : "glass text-muted-foreground hover:text-foreground hover:bg-accent/50 hover:border-border/50 border border-border/30"
+                          }`}
                       >
                         <Icon className="size-4 flex-shrink-0" />
                         <span className="text-sm font-semibold">{label}</span>
@@ -1549,11 +1559,10 @@ function Index() {
                       <div
                         key={t.id}
                         onClick={() => playLocal(t, localTracks)}
-                        className={`flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all border ${
-                          isCurrent
-                            ? "glass bg-primary/10 border-primary/30"
-                            : "glass hover:bg-accent/50 border-border/30"
-                        }`}
+                        className={`flex items-center justify-between p-3 rounded-xl cursor-pointer transition-all border ${isCurrent
+                          ? "glass bg-primary/10 border-primary/30"
+                          : "glass hover:bg-accent/50 border-border/30"
+                          }`}
                       >
                         <div className="flex items-center gap-3 min-w-0">
                           <span className="text-xs text-muted-foreground w-5 text-right font-medium">
@@ -1564,9 +1573,8 @@ function Index() {
                           </div>
                           <div className="min-w-0">
                             <p
-                              className={`text-sm font-semibold truncate ${
-                                isCurrent ? "text-primary" : "text-foreground"
-                              }`}
+                              className={`text-sm font-semibold truncate ${isCurrent ? "text-primary" : "text-foreground"
+                                }`}
                             >
                               {t.title}
                             </p>
@@ -1698,222 +1706,144 @@ function Index() {
                     </div>
                   </>
                 ) : (
-                <>
-                <div className="flex justify-between items-center">
-                  <div className="flex items-center gap-2">
-                    <div className="size-9 rounded-xl bg-primary/10 flex items-center justify-center">
-                      <Library className="size-5 text-primary" />
-                    </div>
-                    <h2 className="text-xl font-bold text-foreground">Sua Biblioteca</h2>
-                  </div>
-                  <Button
-                    onClick={() => setShowCreatePlaylistModal(true)}
-                    className="bg-primary text-primary-foreground hover:bg-primary/90 text-xs rounded-full shadow-glow transition-all"
-                  >
-                    + Criar Playlist
-                  </Button>
-                </div>
-
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  {/* Playlist Cards */}
-                  {(playlistsQuery.data || []).map(
-                    (p: { id: string; name: string; description: string | null }) => (
-                      <div
-                        key={p.id}
-                        onClick={() => {
-                          setSelectedPlaylistId(p.id);
-                          setCurrentTab("library");
-                        }}
-                        className="p-4 rounded-2xl glass hover:bg-accent/50 cursor-pointer transition-all border border-border/30 group"
-                      >
-                        <div className="flex items-start gap-3">
-                          <div className="size-12 rounded-xl bg-gradient-to-br from-primary/30 to-primary/10 flex items-center justify-center flex-shrink-0">
-                            <ListMusic className="size-6 text-primary" />
-                          </div>
-                          <div className="min-w-0 flex-1">
-                            <p className="font-bold text-sm text-foreground truncate">{p.name}</p>
-                            <p className="text-xs text-muted-foreground mt-1 truncate">
-                              {p.description || "Playlist sem descrição"}
-                            </p>
-                          </div>
+                  <>
+                    <div className="flex justify-between items-center">
+                      <div className="flex items-center gap-2">
+                        <div className="size-9 rounded-xl bg-primary/10 flex items-center justify-center">
+                          <Library className="size-5 text-primary" />
                         </div>
+                        <h2 className="text-xl font-bold text-foreground">Sua Biblioteca</h2>
                       </div>
-                    ),
-                  )}
-                  {(playlistsQuery.data || []).length === 0 && (
-                    <EmptyState
-                      icon={Plus}
-                      title="Nenhuma playlist criada"
-                      description="Crie sua primeira playlist para organizar suas músicas favoritas"
-                    />
-                  )}
-                </div>
-                </>
+                      <Button
+                        onClick={() => setShowCreatePlaylistModal(true)}
+                        className="bg-primary text-primary-foreground hover:bg-primary/90 text-xs rounded-full shadow-glow transition-all"
+                      >
+                        + Criar Playlist
+                      </Button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      {/* Playlist Cards */}
+                      {(playlistsQuery.data || []).map(
+                        (p: { id: string; name: string; description: string | null }) => (
+                          <div
+                            key={p.id}
+                            onClick={() => {
+                              setSelectedPlaylistId(p.id);
+                              setCurrentTab("library");
+                            }}
+                            className="p-4 rounded-2xl glass hover:bg-accent/50 cursor-pointer transition-all border border-border/30 group"
+                          >
+                            <div className="flex items-start gap-3">
+                              <div className="size-12 rounded-xl bg-gradient-to-br from-primary/30 to-primary/10 flex items-center justify-center flex-shrink-0">
+                                <ListMusic className="size-6 text-primary" />
+                              </div>
+                              <div className="min-w-0 flex-1">
+                                <p className="font-bold text-sm text-foreground truncate">{p.name}</p>
+                                <p className="text-xs text-muted-foreground mt-1 truncate">
+                                  {p.description || "Playlist sem descrição"}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+                        ),
+                      )}
+                      {(playlistsQuery.data || []).length === 0 && (
+                        <EmptyState
+                          icon={Plus}
+                          title="Nenhuma playlist criada"
+                          description="Crie sua primeira playlist para organizar suas músicas favoritas"
+                        />
+                      )}
+                    </div>
+                  </>
                 )}
               </div>
             )}
           </div>
         </main>
 
-      {/* Bottom Navigation Bar - At bottom on mobile */}
-      <div className="fixed bottom-0 left-0 right-0 bg-player-gradient border-t border-border/30 flex justify-around py-1.5 z-40 md:hidden">
-        {[
-          { icon: Home, label: "Início", tab: "home" as const },
-          { icon: Search, label: "Buscar", tab: "search" as const },
-          { icon: Heart, label: "Favoritos", tab: "favorites" as const },
-          { icon: FolderOpen, label: "Músicas", tab: "musicas" as const },
-          { icon: Library, label: "Biblioteca", tab: "library" as const },
-        ].map(({ icon: Icon, label, tab }) => (
+        {/* Bottom Navigation Bar - At bottom on mobile */}
+        <div className="fixed bottom-0 left-0 right-0 bg-player-gradient border-t border-border/30 flex justify-around py-1.5 z-40 md:hidden">
+          {[
+            { icon: Home, label: "Início", tab: "home" as const },
+            { icon: Search, label: "Buscar", tab: "search" as const },
+            { icon: Heart, label: "Favoritos", tab: "favorites" as const },
+            { icon: FolderOpen, label: "Músicas", tab: "musicas" as const },
+            { icon: Library, label: "Biblioteca", tab: "library" as const },
+          ].map(({ icon: Icon, label, tab }) => (
+            <button
+              key={label}
+              onClick={() => {
+                setCurrentTab(tab);
+                setSelectedPlaylistId(null);
+                setFullscreenPlayer(false);
+              }}
+              className={`flex flex-col items-center gap-1 text-[10px] items-center justify-center w-20 transition-all duration-200 ${currentTab === tab ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                }`}
+            >
+              <Icon className="size-5.5" />
+              <span className="font-medium">{label}</span>
+            </button>
+          ))}
+        </div>
+
+        {/* Instalação PWA — aparece quando o navegador permite o prompt nativo */}
+        {installEvt && (
           <button
-            key={label}
-            onClick={() => {
-              setCurrentTab(tab);
-              setSelectedPlaylistId(null);
-              setFullscreenPlayer(false);
-            }}
-            className={`flex flex-col items-center gap-1 text-[10px] items-center justify-center w-20 transition-all duration-200 ${
-              currentTab === tab ? "text-primary" : "text-muted-foreground hover:text-foreground"
-            }`}
+            onClick={handleInstallClick}
+            className="fixed right-3 bottom-[130px] md:bottom-28 z-[45] flex items-center gap-2 rounded-full bg-primary text-primary-foreground px-4 py-2.5 text-xs font-bold shadow-glow active:scale-95 transition-transform"
           >
-            <Icon className="size-5.5" />
-            <span className="font-medium">{label}</span>
+            <Smartphone className="size-4" />
+            Instalar app
           </button>
-        ))}
-      </div>
+        )}
 
-      {/* Instalação PWA — aparece quando o navegador permite o prompt nativo */}
-      {installEvt && (
-        <button
-          onClick={handleInstallClick}
-          className="fixed right-3 bottom-[130px] md:bottom-28 z-[45] flex items-center gap-2 rounded-full bg-primary text-primary-foreground px-4 py-2.5 text-xs font-bold shadow-glow active:scale-95 transition-transform"
-        >
-          <Smartphone className="size-4" />
-          Instalar app
-        </button>
-      )}
-
-      {/* Mini Player - Above bottom nav on mobile (only when playing) */}
-      {showMiniPlayer && (
-        <div
-          className={`fixed left-0 right-0 bg-player-gradient border-t border-border/30 transition-all duration-500 ease-in-out z-50 shadow-player ${
-            "bottom-[56px] h-[64px] flex items-center justify-between px-3 md:bottom-0 md:h-24 md:px-6 lg:h-20 lg:px-6"
-          }`}
-          onClick={() => {
-            if (!fullscreenPlayer && activeTrack) setFullscreenPlayer(true);
-          }}
->
-          <>
-                {/* Mobile Layout */}
-                <div className="md:hidden flex flex-col gap-0 min-w-0 flex-1">
-                  {/* Progress Bar at Top */}
-                  <div className="w-full h-1.5 bg-muted rounded-t-lg overflow-hidden">
-                    <div
-                      className="h-full bg-primary transition-all duration-100 ease-out"
-                      style={{
-                        width:
-                          progress.duration > 0
-                            ? `${(progress.current / progress.duration) * 100}%`
-                            : "0%",
-                      }}
-                    />
-                  </div>
-                  {/* Track Info + Controls */}
-                  <div className="flex items-center justify-between gap-2 min-w-0 px-2 py-1.5">
-                    <div className="flex items-center gap-2 min-w-0 flex-1">
-                      <div className="relative size-10 flex-shrink-0">
-                        <div className="relative size-full">
-                          {activeTrack.artwork ? (
-                            <img
-                              src={activeTrack.artwork}
-                              className={`size-full rounded-lg object-cover shadow-lg transition-all duration-500 ${
-                                playing ? "animate-spin-cd" : "animate-spin-cd-paused"
-                              }`}
-                              style={{ animationPlayState: playing ? "running" : "paused" }}
-                            />
-                          ) : (
-                            <div className="size-full rounded-lg bg-gradient-to-br from-primary/40 to-primary/10 flex items-center justify-center shadow-lg">
-                              <Music className="size-4 text-primary" />
-                            </div>
-                          )}
-                          <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-primary/20 via-transparent to-primary/10 pointer-events-none" />
-                          {playing && (
-                            <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-lg">
-                              <div className="flex gap-0.5 items-end h-3">
-                                {[1, 2, 3].map((idx) => (
-                                  <span
-                                    key={idx}
-                                    className="w-0.5 bg-primary rounded-full animate-pulse"
-                                    style={{
-                                      height: `${30 + idx * 15}%`,
-                                      animationDuration: `${0.3 + idx * 0.1}s`,
-                                    }}
-                                  />
-                                ))}
-                              </div>
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-bold text-foreground">
-                          {activeTrack.title}
-                        </p>
-                        <p className="truncate text-[10px] text-muted-foreground">
-                          {activeTrack.artist}
-                        </p>
-                      </div>
-                    </div>
-                    {/* Controls on Right */}
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                      <button
-                        onClick={() => activeSkip(-1)}
-                        className="text-muted-foreground hover:text-foreground transition-colors p-1.5 rounded-full hover:bg-accent/50"
-                      >
-                        <SkipBack className="size-4 fill-current" />
-                      </button>
-                      <button
-                        onClick={() => setPlaying(!playing)}
-                        className="size-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-player hover:scale-105 active:scale-95 transition-transform"
-                      >
-                        {playing ? (
-                          <Pause className="size-4 fill-current" />
-                        ) : (
-                          <Play className="size-4 fill-current translate-x-[1px]" />
-                        )}
-                      </button>
-                      <button
-                        onClick={() => activeSkip(1)}
-                        className="text-muted-foreground hover:text-foreground transition-colors p-1.5 rounded-full hover:bg-accent/50"
-                      >
-                        <SkipForward className="size-4 fill-current" />
-                      </button>
-                    </div>
-                  </div>
+        {/* Mini Player - Above bottom nav on mobile (only when playing) */}
+        {showMiniPlayer && (
+          <div
+            className={`fixed left-0 right-0 bg-player-gradient border-t border-border/30 transition-all duration-500 ease-in-out z-50 shadow-player ${"bottom-[56px] h-[64px] flex items-center justify-between px-3 md:bottom-0 md:h-24 md:px-6 lg:h-20 lg:px-6"
+              }`}
+            onClick={() => {
+              if (!fullscreenPlayer && activeTrack) setFullscreenPlayer(true);
+            }}
+          >
+            <>
+              {/* Mobile Layout */}
+              <div className="md:hidden flex flex-col gap-0 min-w-0 flex-1">
+                {/* Progress Bar at Top */}
+                <div className="w-full h-1.5 bg-muted rounded-t-lg overflow-hidden">
+                  <div
+                    className="h-full bg-primary transition-all duration-100 ease-out"
+                    style={{
+                      width:
+                        progress.duration > 0
+                          ? `${(progress.current / progress.duration) * 100}%`
+                          : "0%",
+                    }}
+                  />
                 </div>
-
-                {/* Desktop Layout - Spotify style */}
-                <div className="hidden md:flex md:flex-1 md:items-center md:justify-between md:gap-6">
-                  {/* Track Info */}
-                  <div className="flex items-center gap-4 min-w-0 flex-1">
-                    <div className="relative size-14 flex-shrink-0">
+                {/* Track Info + Controls */}
+                <div className="flex items-center justify-between gap-2 min-w-0 px-2 py-1.5">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    <div className="relative size-10 flex-shrink-0">
                       <div className="relative size-full">
                         {activeTrack.artwork ? (
                           <img
                             src={activeTrack.artwork}
-                            className={`size-full rounded-lg object-cover shadow-xl transition-all duration-500 ${
-                              playing ? "animate-spin-cd" : "animate-spin-cd-paused"
-                            }`}
+                            className={`size-full rounded-lg object-cover shadow-lg transition-all duration-500 ${playing ? "animate-spin-cd" : "animate-spin-cd-paused"
+                              }`}
                             style={{ animationPlayState: playing ? "running" : "paused" }}
                           />
                         ) : (
-                          <div className="size-full rounded-lg bg-gradient-to-br from-primary/40 to-primary/10 flex items-center justify-center shadow-xl">
-                            <Music className="size-6 text-primary" />
+                          <div className="size-full rounded-lg bg-gradient-to-br from-primary/40 to-primary/10 flex items-center justify-center shadow-lg">
+                            <Music className="size-4 text-primary" />
                           </div>
                         )}
                         <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-primary/20 via-transparent to-primary/10 pointer-events-none" />
                         {playing && (
                           <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-lg">
-                            <div className="flex gap-0.5 items-end h-5">
+                            <div className="flex gap-0.5 items-end h-3">
                               {[1, 2, 3].map((idx) => (
                                 <span
                                   key={idx}
@@ -1929,90 +1859,164 @@ function Index() {
                         )}
                       </div>
                     </div>
-                    <div className="min-w-0">
-                      <p className="truncate text-base font-semibold text-foreground">
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-bold text-foreground">
                         {activeTrack.title}
                       </p>
-                      <p className="truncate text-sm text-muted-foreground mt-0.5">
+                      <p className="truncate text-[10px] text-muted-foreground">
                         {activeTrack.artist}
                       </p>
                     </div>
                   </div>
-
-                  {/* Player Controls */}
-                  <div className="flex flex-col items-center gap-2 flex-1 max-w-md">
-                    <div className="flex items-center gap-4">
-                      <button
-                        onClick={() => activeSkip(-1)}
-                        className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-full hover:bg-accent/50"
-                      >
-                        <SkipBack className="size-5 fill-current" />
-                      </button>
-                      <button
-                        onClick={() => setPlaying(!playing)}
-                        className="size-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-player hover:scale-105 active:scale-95 transition-transform"
-                      >
-                        {playing ? (
-                          <Pause className="size-6 fill-current" />
-                        ) : (
-                          <Play className="size-6 fill-current translate-x-[1px]" />
-                        )}
-                      </button>
-                      <button
-                        onClick={() => activeSkip(1)}
-                        className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-full hover:bg-accent/50"
-                      >
-                        <SkipForward className="size-5 fill-current" />
-                      </button>
-                    </div>
-                    {/* Progress Bar */}
-                    <div className="w-full flex items-center gap-2 text-xs text-muted-foreground font-mono">
-                      <span className="w-10 text-right">{formatTime(progress.current)}</span>
-                      <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
-                        <div
-                          className="h-full bg-primary transition-all duration-100 ease-out"
-                          style={{
-                            width:
-                              progress.duration > 0
-                                ? `${(progress.current / progress.duration) * 100}%`
-                                : "0%",
-                          }}
-                        />
-                      </div>
-                      <span className="w-10">{formatTime(progress.duration)}</span>
-                    </div>
-                  </div>
-
-                  {/* Volume & Extra Controls */}
-                  <div className="flex items-center gap-3 flex-1 justify-end">
+                  {/* Controls on Right */}
+                  <div className="flex items-center gap-1.5 flex-shrink-0">
                     <button
-                      onClick={() => setVolume((v) => (v > 0 ? 0 : 80))}
-                      className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-full hover:bg-accent/50"
+                      onClick={() => activeSkip(-1)}
+                      className="text-muted-foreground hover:text-foreground transition-colors p-1.5 rounded-full hover:bg-accent/50"
                     >
-                      <Volume2 className="size-5" />
+                      <SkipBack className="size-4 fill-current" />
                     </button>
-                    <Slider
-                      value={[volume]}
-                      max={100}
-                      step={1}
-                      className="w-24 [&_[role=slider]]:size-3 bg-primary/20 [&_[role=slider]]:bg-primary [&_[role=slider]]:shadow-glow"
-                      onValueChange={(v) => setVolume(v[0] ?? 80)}
-                    />
                     <button
-                      onClick={(e) => {
-                        e.stopPropagation();
-                        setShowQueueModal(true);
-                      }}
-                      className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-full hover:bg-accent/50"
+                      onClick={() => setPlaying(!playing)}
+                      className="size-8 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-player hover:scale-105 active:scale-95 transition-transform"
                     >
-                      <ListMusic className="size-5" />
+                      {playing ? (
+                        <Pause className="size-4 fill-current" />
+                      ) : (
+                        <Play className="size-4 fill-current translate-x-[1px]" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => activeSkip(1)}
+                      className="text-muted-foreground hover:text-foreground transition-colors p-1.5 rounded-full hover:bg-accent/50"
+                    >
+                      <SkipForward className="size-4 fill-current" />
                     </button>
                   </div>
                 </div>
-              </>
-            </div>
-          )}
-          {fullscreenPlayer && activeTrack && (
+              </div>
+
+              {/* Desktop Layout - Spotify style */}
+              <div className="hidden md:flex md:flex-1 md:items-center md:justify-between md:gap-6">
+                {/* Track Info */}
+                <div className="flex items-center gap-4 min-w-0 flex-1">
+                  <div className="relative size-14 flex-shrink-0">
+                    <div className="relative size-full">
+                      {activeTrack.artwork ? (
+                        <img
+                          src={activeTrack.artwork}
+                          className={`size-full rounded-lg object-cover shadow-xl transition-all duration-500 ${playing ? "animate-spin-cd" : "animate-spin-cd-paused"
+                            }`}
+                          style={{ animationPlayState: playing ? "running" : "paused" }}
+                        />
+                      ) : (
+                        <div className="size-full rounded-lg bg-gradient-to-br from-primary/40 to-primary/10 flex items-center justify-center shadow-xl">
+                          <Music className="size-6 text-primary" />
+                        </div>
+                      )}
+                      <div className="absolute inset-0 rounded-lg bg-gradient-to-br from-primary/20 via-transparent to-primary/10 pointer-events-none" />
+                      {playing && (
+                        <div className="absolute inset-0 flex items-center justify-center bg-black/20 rounded-lg">
+                          <div className="flex gap-0.5 items-end h-5">
+                            {[1, 2, 3].map((idx) => (
+                              <span
+                                key={idx}
+                                className="w-0.5 bg-primary rounded-full animate-pulse"
+                                style={{
+                                  height: `${30 + idx * 15}%`,
+                                  animationDuration: `${0.3 + idx * 0.1}s`,
+                                }}
+                              />
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="truncate text-base font-semibold text-foreground">
+                      {activeTrack.title}
+                    </p>
+                    <p className="truncate text-sm text-muted-foreground mt-0.5">
+                      {activeTrack.artist}
+                    </p>
+                  </div>
+                </div>
+
+                {/* Player Controls */}
+                <div className="flex flex-col items-center gap-2 flex-1 max-w-md">
+                  <div className="flex items-center gap-4">
+                    <button
+                      onClick={() => activeSkip(-1)}
+                      className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-full hover:bg-accent/50"
+                    >
+                      <SkipBack className="size-5 fill-current" />
+                    </button>
+                    <button
+                      onClick={() => setPlaying(!playing)}
+                      className="size-12 rounded-full bg-primary text-primary-foreground flex items-center justify-center shadow-player hover:scale-105 active:scale-95 transition-transform"
+                    >
+                      {playing ? (
+                        <Pause className="size-6 fill-current" />
+                      ) : (
+                        <Play className="size-6 fill-current translate-x-[1px]" />
+                      )}
+                    </button>
+                    <button
+                      onClick={() => activeSkip(1)}
+                      className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-full hover:bg-accent/50"
+                    >
+                      <SkipForward className="size-5 fill-current" />
+                    </button>
+                  </div>
+                  {/* Progress Bar */}
+                  <div className="w-full flex items-center gap-2 text-xs text-muted-foreground font-mono">
+                    <span className="w-10 text-right">{formatTime(progress.current)}</span>
+                    <div className="flex-1 h-1.5 bg-muted rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-primary transition-all duration-100 ease-out"
+                        style={{
+                          width:
+                            progress.duration > 0
+                              ? `${(progress.current / progress.duration) * 100}%`
+                              : "0%",
+                        }}
+                      />
+                    </div>
+                    <span className="w-10">{formatTime(progress.duration)}</span>
+                  </div>
+                </div>
+
+                {/* Volume & Extra Controls */}
+                <div className="flex items-center gap-3 flex-1 justify-end">
+                  <button
+                    onClick={() => setVolume((v) => (v > 0 ? 0 : 80))}
+                    className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-full hover:bg-accent/50"
+                  >
+                    <Volume2 className="size-5" />
+                  </button>
+                  <Slider
+                    value={[volume]}
+                    max={100}
+                    step={1}
+                    className="w-24 [&_[role=slider]]:size-3 bg-primary/20 [&_[role=slider]]:bg-primary [&_[role=slider]]:shadow-glow"
+                    onValueChange={(v) => setVolume(v[0] ?? 80)}
+                  />
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      setShowQueueModal(true);
+                    }}
+                    className="text-muted-foreground hover:text-foreground transition-colors p-1 rounded-full hover:bg-accent/50"
+                  >
+                    <ListMusic className="size-5" />
+                  </button>
+                </div>
+              </div>
+            </>
+          </div>
+        )}
+        {fullscreenPlayer && activeTrack && (
           <div className="fixed inset-0 z-[60] bg-player-gradient overflow-y-auto px-4 sm:px-6 py-3 flex flex-col justify-between animate-in fade-in duration-300">
             {/* Header */}
             <div className="flex items-center justify-between mt-2">
@@ -2098,11 +2102,10 @@ function Index() {
                     toggleLikeMutation.mutate(current);
                   }
                 }}
-                className={`size-12 flex items-center justify-center rounded-full transition-all ${
-                  (likedSongsQuery.data || []).some((t) => t.id === activeTrack.id)
-                    ? "bg-primary/20 text-primary"
-                    : "bg-accent/50 text-muted-foreground hover:bg-accent hover:text-foreground"
-                }`}
+                className={`size-12 flex items-center justify-center rounded-full transition-all ${(likedSongsQuery.data || []).some((t) => t.id === activeTrack.id)
+                  ? "bg-primary/20 text-primary"
+                  : "bg-accent/50 text-muted-foreground hover:bg-accent hover:text-foreground"
+                  }`}
               >
                 <Heart
                   className={`size-6 ${(likedSongsQuery.data || []).some((t) => t.id === activeTrack.id) ? "fill-current" : ""}`}
@@ -2145,11 +2148,10 @@ function Index() {
                   setShuffleEnabled(next);
                   toast.info(next ? "Ordem aleatória ativada" : "Ordem aleatória desativada");
                 }}
-                className={`transition-colors p-2 rounded-full hover:bg-accent/50 ${
-                  shuffleEnabled
-                    ? "text-primary"
-                    : "text-muted-foreground hover:text-foreground"
-                }`}
+                className={`transition-colors p-2 rounded-full hover:bg-accent/50 ${shuffleEnabled
+                  ? "text-primary"
+                  : "text-muted-foreground hover:text-foreground"
+                  }`}
                 title="Ordem aleatória"
               >
                 <Shuffle className="size-5" />
@@ -2182,9 +2184,8 @@ function Index() {
                   setRepeatEnabled(next);
                   toast.info(next ? "Repetir ativado" : "Repetir desativado");
                 }}
-                className={`relative transition-colors p-2 rounded-full hover:bg-accent/50 ${
-                  repeatEnabled ? "text-primary" : "text-muted-foreground hover:text-foreground"
-                }`}
+                className={`relative transition-colors p-2 rounded-full hover:bg-accent/50 ${repeatEnabled ? "text-primary" : "text-muted-foreground hover:text-foreground"
+                  }`}
                 title="Repetir música"
               >
                 <Repeat className="size-5" />
@@ -2213,325 +2214,323 @@ function Index() {
             </div>
           </div>
         )}
-      
-      {/* EQUALIZER MODAL */}
-      {showEqModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-[70] animate-in fade-in duration-200">
-          <div className="w-full max-w-sm rounded-3xl glass p-6 relative shadow-player border border-border/30 animate-in scale-in duration-300">
-            {/* Header */}
-            <div className="flex items-center justify-between">
-              <h3 className="text-md font-bold text-foreground flex items-center gap-2">
-                <Zap className="size-5 text-primary" />
-                Equalizador
-              </h3>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => toggleEq(!eqEnabled)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${
-                    eqEnabled
+
+        {/* EQUALIZER MODAL */}
+        {showEqModal && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-[70] animate-in fade-in duration-200">
+            <div className="w-full max-w-sm rounded-3xl glass p-6 relative shadow-player border border-border/30 animate-in scale-in duration-300">
+              {/* Header */}
+              <div className="flex items-center justify-between">
+                <h3 className="text-md font-bold text-foreground flex items-center gap-2">
+                  <Zap className="size-5 text-primary" />
+                  Equalizador
+                </h3>
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => toggleEq(!eqEnabled)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-bold transition-all ${eqEnabled
                       ? "bg-primary text-primary-foreground shadow-glow"
                       : "bg-accent/50 text-muted-foreground hover:bg-accent hover:text-foreground"
-                  }`}
-                >
-                  {eqEnabled ? "Ligado" : "Desligado"}
-                </button>
+                      }`}
+                  >
+                    {eqEnabled ? "Ligado" : "Desligado"}
+                  </button>
+                  <button
+                    onClick={() => setShowEqModal(false)}
+                    className="text-muted-foreground hover:text-foreground p-1 rounded-full hover:bg-accent/50 transition-colors"
+                  >
+                    <X className="size-5" />
+                  </button>
+                </div>
+              </div>
+
+              {/* Presets Grid */}
+              <div className="grid grid-cols-4 gap-2 mt-6">
+                {(
+                  ["Neutro", "Grave", "Vocal", "Agudo", "Eletrônica", "Rock", "Podcast"] as EqPreset[]
+                ).map((preset) => (
+                  <button
+                    key={preset}
+                    onClick={() => applyPreset(preset)}
+                    className={`px-3 py-2 rounded-xl text-xs font-semibold text-center truncate transition-all ${currentPreset === preset
+                      ? "bg-primary/20 text-primary border border-primary/30 shadow-[0_0_0_1px]_theme(colors.primary/30)"
+                      : "bg-accent/50 text-muted-foreground hover:bg-accent hover:text-foreground"
+                      }`}
+                  >
+                    {preset}
+                  </button>
+                ))}
+              </div>
+
+              {/* Sliders Container (Vertical range controls) */}
+              <div className="flex h-40 justify-between items-center mt-6 px-2">
+                {gains.map((gainVal, idx) => (
+                  <div key={idx} className="flex flex-col items-center h-full justify-between">
+                    <span className="text-[10px] text-muted-foreground font-mono">
+                      {gainVal > 0 ? `+${gainVal}dB` : `${gainVal}dB`}
+                    </span>
+                    <div className="h-28 w-2 bg-muted rounded-full relative flex items-center justify-center group">
+                      <input
+                        type="range"
+                        min="-12"
+                        max="12"
+                        step="1"
+                        value={gainVal}
+                        disabled={!eqEnabled}
+                        className="absolute accent-primary h-28 w-2 cursor-pointer transform -rotate-180 opacity-0 group-hover:opacity-100 transition-opacity"
+                        style={{ writingMode: "vertical-lr" }}
+                        onChange={(e) => updateGain(idx, Number(e.target.value))}
+                      />
+                      <div
+                        className="absolute bottom-0 w-2 bg-primary/20 rounded-full transition-all"
+                        style={{ height: `${((gainVal + 12) / 24) * 100}%` }}
+                      />
+                    </div>
+                    <span className="text-[9px] text-muted-foreground/60 font-mono mt-1">
+                      {[32, 64, 125, 250, 500, "1k", "2k", "4k", "8k", "16k"][idx]}
+                    </span>
+                  </div>
+                ))}
+              </div>
+
+              <p className="text-xs text-center text-muted-foreground/60 mt-6">
+                Ajuste as frequências (Hz) para moldar o som
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* QUEUE MODAL */}
+        {showQueueModal && (
+          <div
+            className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-[70] animate-in fade-in duration-200"
+            onClick={() => setShowQueueModal(false)}
+          >
+            <div
+              className="w-full max-w-sm rounded-3xl glass p-5 relative shadow-player border border-border/30 animate-in scale-in duration-300 flex flex-col max-h-[80vh]"
+              onClick={(e) => e.stopPropagation()}
+            >
+              {/* Header */}
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-md font-bold text-foreground flex items-center gap-2">
+                  <ListMusic className="size-5 text-primary" />
+                  Fila de reprodução
+                </h3>
                 <button
-                  onClick={() => setShowEqModal(false)}
+                  onClick={() => setShowQueueModal(false)}
                   className="text-muted-foreground hover:text-foreground p-1 rounded-full hover:bg-accent/50 transition-colors"
                 >
                   <X className="size-5" />
                 </button>
               </div>
-            </div>
 
-            {/* Presets Grid */}
-            <div className="grid grid-cols-4 gap-2 mt-6">
-              {(
-                ["Neutro", "Grave", "Vocal", "Agudo", "Eletrônica", "Rock", "Podcast"] as EqPreset[]
-              ).map((preset) => (
-                <button
-                  key={preset}
-                  onClick={() => applyPreset(preset)}
-                  className={`px-3 py-2 rounded-xl text-xs font-semibold text-center truncate transition-all ${
-                    currentPreset === preset
-                      ? "bg-primary/20 text-primary border border-primary/30 shadow-[0_0_0_1px]_theme(colors.primary/30)"
-                      : "bg-accent/50 text-muted-foreground hover:bg-accent hover:text-foreground"
-                  }`}
-                >
-                  {preset}
-                </button>
-              ))}
-            </div>
-
-            {/* Sliders Container (Vertical range controls) */}
-            <div className="flex h-40 justify-between items-center mt-6 px-2">
-              {gains.map((gainVal, idx) => (
-                <div key={idx} className="flex flex-col items-center h-full justify-between">
-                  <span className="text-[10px] text-muted-foreground font-mono">
-                    {gainVal > 0 ? `+${gainVal}dB` : `${gainVal}dB`}
-                  </span>
-                  <div className="h-28 w-2 bg-muted rounded-full relative flex items-center justify-center group">
-                    <input
-                      type="range"
-                      min="-12"
-                      max="12"
-                      step="1"
-                      value={gainVal}
-                      disabled={!eqEnabled}
-                      className="absolute accent-primary h-28 w-2 cursor-pointer transform -rotate-180 opacity-0 group-hover:opacity-100 transition-opacity"
-                      style={{ writingMode: "vertical-lr" }}
-                      onChange={(e) => updateGain(idx, Number(e.target.value))}
-                    />
-                    <div
-                      className="absolute bottom-0 w-2 bg-primary/20 rounded-full transition-all"
-                      style={{ height: `${((gainVal + 12) / 24) * 100}%` }}
-                    />
+              {/* Now Playing */}
+              {current && (
+                <>
+                  <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-2">
+                    Tocando agora
+                  </p>
+                  <div className="flex items-center gap-3 p-3 rounded-xl bg-primary/10 border border-primary/30 mb-4">
+                    <img src={current.artwork} className="size-10 rounded-lg object-cover shadow-md" />
+                    <div className="min-w-0">
+                      <p className="text-sm font-bold text-primary truncate">{current.title}</p>
+                      <p className="text-xs text-muted-foreground truncate">{current.artist}</p>
+                    </div>
                   </div>
-                  <span className="text-[9px] text-muted-foreground/60 font-mono mt-1">
-                    {[32, 64, 125, 250, 500, "1k", "2k", "4k", "8k", "16k"][idx]}
-                  </span>
-                </div>
-              ))}
+                </>
+              )}
+
+              {/* Up Next */}
+              <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-2">
+                A seguir ({queue.length - index - 1 > 0 ? queue.length - index - 1 : 0})
+              </p>
+              <div className="space-y-1 overflow-y-auto flex-1 min-h-0 pr-1">
+                {queue.slice(index + 1).map((t, i) => (
+                  <div
+                    key={`${t.id}-${i}`}
+                    onClick={() => {
+                      play(t, queue);
+                      setShowQueueModal(false);
+                    }}
+                    title="Tocar agora — as próximas continuam depois desta"
+                    className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-accent/50 cursor-pointer transition-all"
+                  >
+                    <span className="text-xs text-muted-foreground w-5 text-right font-medium">
+                      {i + 1}
+                    </span>
+                    <img src={t.artwork} className="size-10 rounded-lg object-cover shadow-md" />
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-foreground truncate">{t.title}</p>
+                      <p className="text-xs text-muted-foreground truncate">{t.artist}</p>
+                    </div>
+                    <Play className="size-4 text-muted-foreground flex-shrink-0" />
+                  </div>
+                ))}
+                {queue.length - index - 1 <= 0 && (
+                  <EmptyState
+                    icon={ListMusic}
+                    title="Fila vazia"
+                    description="Toque uma playlist ou álbum para montar a sequência de músicas"
+                  />
+                )}
+              </div>
+
+              <p className="text-xs text-center text-muted-foreground/60 mt-4 pt-3 border-t border-border/30">
+                Toque em uma música para ouvi-la agora; o restante da fila continua depois dela
+              </p>
             </div>
-
-            <p className="text-xs text-center text-muted-foreground/60 mt-6">
-              Ajuste as frequências (Hz) para moldar o som
-            </p>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* QUEUE MODAL */}
-      {showQueueModal && (
-        <div
-          className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-[70] animate-in fade-in duration-200"
-          onClick={() => setShowQueueModal(false)}
-        >
-          <div
-            className="w-full max-w-sm rounded-3xl glass p-5 relative shadow-player border border-border/30 animate-in scale-in duration-300 flex flex-col max-h-[80vh]"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header */}
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-md font-bold text-foreground flex items-center gap-2">
-                <ListMusic className="size-5 text-primary" />
-                Fila de reprodução
-              </h3>
+        {/* AUTH MODAL */}
+        {showAuthModal && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-[70] animate-in fade-in duration-200">
+            <div className="w-full max-w-sm rounded-3xl glass p-6 relative shadow-player border border-border/30 animate-in scale-in duration-300">
               <button
-                onClick={() => setShowQueueModal(false)}
-                className="text-muted-foreground hover:text-foreground p-1 rounded-full hover:bg-accent/50 transition-colors"
+                onClick={() => setShowAuthModal(false)}
+                className="absolute top-4 right-4 text-muted-foreground hover:text-foreground p-1 rounded-full hover:bg-accent/50 transition-colors"
               >
                 <X className="size-5" />
               </button>
-            </div>
-
-            {/* Now Playing */}
-            {current && (
-              <>
-                <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-2">
-                  Tocando agora
+              <div className="text-center mb-6">
+                <div className="size-12 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-3">
+                  <Headphones className="size-6 text-primary" />
+                </div>
+                <h3 className="text-xl font-bold text-foreground">
+                  {authMode === "login" ? "Bem-vindo ao ELL MUSIC" : "Crie sua conta"}
+                </h3>
+                <p className="text-sm text-muted-foreground mt-1">
+                  {authMode === "login"
+                    ? "Entre para acessar suas playlists e favoritos"
+                    : "Cadastre-se para salvar suas músicas favoritas"}
                 </p>
-                <div className="flex items-center gap-3 p-3 rounded-xl bg-primary/10 border border-primary/30 mb-4">
-                  <img src={current.artwork} className="size-10 rounded-lg object-cover shadow-md" />
-                  <div className="min-w-0">
-                    <p className="text-sm font-bold text-primary truncate">{current.title}</p>
-                    <p className="text-xs text-muted-foreground truncate">{current.artist}</p>
-                  </div>
-                </div>
-              </>
-            )}
-
-            {/* Up Next */}
-            <p className="text-[10px] uppercase font-bold tracking-wider text-muted-foreground mb-2">
-              A seguir ({queue.length - index - 1 > 0 ? queue.length - index - 1 : 0})
-            </p>
-            <div className="space-y-1 overflow-y-auto flex-1 min-h-0 pr-1">
-              {queue.slice(index + 1).map((t, i) => (
-                <div
-                  key={`${t.id}-${i}`}
-                  onClick={() => {
-                    play(t, queue);
-                    setShowQueueModal(false);
-                  }}
-                  title="Tocar agora — as próximas continuam depois desta"
-                  className="flex items-center gap-3 p-2.5 rounded-xl hover:bg-accent/50 cursor-pointer transition-all"
-                >
-                  <span className="text-xs text-muted-foreground w-5 text-right font-medium">
-                    {i + 1}
-                  </span>
-                  <img src={t.artwork} className="size-10 rounded-lg object-cover shadow-md" />
-                  <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-foreground truncate">{t.title}</p>
-                    <p className="text-xs text-muted-foreground truncate">{t.artist}</p>
-                  </div>
-                  <Play className="size-4 text-muted-foreground flex-shrink-0" />
-                </div>
-              ))}
-              {queue.length - index - 1 <= 0 && (
-                <EmptyState
-                  icon={ListMusic}
-                  title="Fila vazia"
-                  description="Toque uma playlist ou álbum para montar a sequência de músicas"
-                />
-              )}
-            </div>
-
-            <p className="text-xs text-center text-muted-foreground/60 mt-4 pt-3 border-t border-border/30">
-              Toque em uma música para ouvi-la agora; o restante da fila continua depois dela
-            </p>
-          </div>
-        </div>
-      )}
-
-      {/* AUTH MODAL */}
-      {showAuthModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-[70] animate-in fade-in duration-200">
-          <div className="w-full max-w-sm rounded-3xl glass p-6 relative shadow-player border border-border/30 animate-in scale-in duration-300">
-            <button
-              onClick={() => setShowAuthModal(false)}
-              className="absolute top-4 right-4 text-muted-foreground hover:text-foreground p-1 rounded-full hover:bg-accent/50 transition-colors"
-            >
-              <X className="size-5" />
-            </button>
-            <div className="text-center mb-6">
-              <div className="size-12 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-3">
-                <Headphones className="size-6 text-primary" />
               </div>
-              <h3 className="text-xl font-bold text-foreground">
-                {authMode === "login" ? "Bem-vindo ao ELL MUSIC" : "Crie sua conta"}
-              </h3>
-              <p className="text-sm text-muted-foreground mt-1">
-                {authMode === "login"
-                  ? "Entre para acessar suas playlists e favoritos"
-                  : "Cadastre-se para salvar suas músicas favoritas"}
-              </p>
-            </div>
-            <form onSubmit={handleAuthSubmit} className="space-y-3 mt-4">
-              {authMode === "register" && (
+              <form onSubmit={handleAuthSubmit} className="space-y-3 mt-4">
+                {authMode === "register" && (
+                  <Input
+                    placeholder="Nome"
+                    value={displayName}
+                    onChange={(e) => setDisplayName(e.target.value)}
+                    className="bg-accent/50 border-border/30 text-sm"
+                  />
+                )}
                 <Input
-                  placeholder="Nome"
-                  value={displayName}
-                  onChange={(e) => setDisplayName(e.target.value)}
+                  type="email"
+                  placeholder="E-mail"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
                   className="bg-accent/50 border-border/30 text-sm"
                 />
-              )}
-              <Input
-                type="email"
-                placeholder="E-mail"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                className="bg-accent/50 border-border/30 text-sm"
-              />
-              <Input
-                type="password"
-                placeholder="Senha"
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                className="bg-accent/50 border-border/30 text-sm"
-              />
-              <Button
-                type="submit"
-                disabled={authLoading}
-                className="w-full bg-primary text-primary-foreground hover:bg-primary/90 rounded-full text-sm shadow-glow transition-all mt-2"
+                <Input
+                  type="password"
+                  placeholder="Senha"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  className="bg-accent/50 border-border/30 text-sm"
+                />
+                <Button
+                  type="submit"
+                  disabled={authLoading}
+                  className="w-full bg-primary text-primary-foreground hover:bg-primary/90 rounded-full text-sm shadow-glow transition-all mt-2"
+                >
+                  {authLoading ? "Aguarde..." : authMode === "login" ? "Entrar" : "Criar Conta"}
+                </Button>
+              </form>
+              <button
+                onClick={() => setAuthMode((m) => (m === "login" ? "register" : "login"))}
+                className="text-sm text-primary mt-4 hover:underline block w-full"
               >
-                {authLoading ? "Aguarde..." : authMode === "login" ? "Entrar" : "Criar Conta"}
-              </Button>
-            </form>
-            <button
-              onClick={() => setAuthMode((m) => (m === "login" ? "register" : "login"))}
-              className="text-sm text-primary mt-4 hover:underline block w-full"
-            >
-              {authMode === "login" ? "Não possui conta? Cadastre-se" : "Já sou cadastrado"}
-            </button>
+                {authMode === "login" ? "Não possui conta? Cadastre-se" : "Já sou cadastrado"}
+              </button>
+            </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* CRIAR PLAYLIST MODAL */}
-      {showCreatePlaylistModal && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-[70] animate-in fade-in duration-200">
-          <div className="w-full max-w-sm rounded-3xl glass p-6 relative shadow-player border border-border/30 animate-in scale-in duration-300">
-            <button
-              onClick={() => setShowCreatePlaylistModal(false)}
-              className="absolute top-4 right-4 text-muted-foreground hover:text-foreground p-1 rounded-full hover:bg-accent/50 transition-colors"
-            >
-              <X className="size-5" />
-            </button>
-            <div className="text-center mb-4">
-              <div className="size-12 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-3">
-                <Plus className="size-6 text-primary" />
+        {/* CRIAR PLAYLIST MODAL */}
+        {showCreatePlaylistModal && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-[70] animate-in fade-in duration-200">
+            <div className="w-full max-w-sm rounded-3xl glass p-6 relative shadow-player border border-border/30 animate-in scale-in duration-300">
+              <button
+                onClick={() => setShowCreatePlaylistModal(false)}
+                className="absolute top-4 right-4 text-muted-foreground hover:text-foreground p-1 rounded-full hover:bg-accent/50 transition-colors"
+              >
+                <X className="size-5" />
+              </button>
+              <div className="text-center mb-4">
+                <div className="size-12 rounded-xl bg-primary/10 flex items-center justify-center mx-auto mb-3">
+                  <Plus className="size-6 text-primary" />
+                </div>
+                <h3 className="text-lg font-bold text-foreground">Criar Playlist</h3>
+                <p className="text-sm text-muted-foreground mt-1">Organize suas músicas favoritas</p>
               </div>
-              <h3 className="text-lg font-bold text-foreground">Criar Playlist</h3>
-              <p className="text-sm text-muted-foreground mt-1">Organize suas músicas favoritas</p>
-            </div>
-            <div className="space-y-3 mt-4">
-              <Input
-                placeholder="Título da playlist"
-                value={playlistName}
-                onChange={(e) => setPlaylistName(e.target.value)}
-                className="bg-accent/50 border-border/30 text-sm"
-              />
-              <Input
-                placeholder="Descrição (opcional)"
-                value={playlistDescription}
-                onChange={(e) => setPlaylistDescription(e.target.value)}
-                className="bg-accent/50 border-border/30 text-sm"
-              />
-              <Button
-                onClick={() =>
-                  createPlaylistMutation.mutate({ name: playlistName, desc: playlistDescription })
-                }
-                className="w-full bg-primary text-primary-foreground hover:bg-primary/90 rounded-full text-sm shadow-glow transition-all"
-              >
-                Criar Playlist
-              </Button>
+              <div className="space-y-3 mt-4">
+                <Input
+                  placeholder="Título da playlist"
+                  value={playlistName}
+                  onChange={(e) => setPlaylistName(e.target.value)}
+                  className="bg-accent/50 border-border/30 text-sm"
+                />
+                <Input
+                  placeholder="Descrição (opcional)"
+                  value={playlistDescription}
+                  onChange={(e) => setPlaylistDescription(e.target.value)}
+                  className="bg-accent/50 border-border/30 text-sm"
+                />
+                <Button
+                  onClick={() =>
+                    createPlaylistMutation.mutate({ name: playlistName, desc: playlistDescription })
+                  }
+                  className="w-full bg-primary text-primary-foreground hover:bg-primary/90 rounded-full text-sm shadow-glow transition-all"
+                >
+                  Criar Playlist
+                </Button>
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
 
-      {/* SELECIONAR PLAYLIST */}
-      {trackToAddToPlaylist && (
-        <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-[70] animate-in fade-in duration-200">
-          <div className="w-full max-w-sm rounded-3xl glass p-6 relative shadow-player border border-border/30 animate-in scale-in duration-300">
-            <button
-              onClick={() => setTrackToAddToPlaylist(null)}
-              className="absolute top-4 right-4 text-muted-foreground hover:text-foreground p-1 rounded-full hover:bg-accent/50 transition-colors"
-            >
-              <X className="size-5" />
-            </button>
-            <h3 className="text-sm font-bold truncate text-foreground mb-4">
-              Adicionar a playlist
-            </h3>
-            <div className="mt-2 space-y-1 max-h-56 overflow-y-auto scroll-area">
-              {(playlistsQuery.data || []).map(
-                (p: { id: string; name: string; description: string | null }) => (
-                  <button
-                    key={p.id}
-                    onClick={() =>
-                      addTrackToPlaylistMutation.mutate({
-                        playlistId: p.id,
-                        track: trackToAddToPlaylist,
-                      })
-                    }
-                    className="w-full text-left p-3 rounded-xl glass hover:bg-accent/50 text-sm transition-all border border-border/30 flex items-center gap-3"
-                  >
-                    <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
-                      <ListMusic className="size-4 text-primary" />
-                    </div>
-                    <span className="truncate font-medium text-foreground">{p.name}</span>
-                  </button>
-                ),
-              )}
-              {(playlistsQuery.data || []).length === 0 && (
-                <p className="text-sm text-muted-foreground text-center py-4">
-                  Nenhuma playlist criada ainda
-                </p>
-              )}
+        {/* SELECIONAR PLAYLIST */}
+        {trackToAddToPlaylist && (
+          <div className="fixed inset-0 bg-black/80 backdrop-blur-md flex items-center justify-center p-4 z-[70] animate-in fade-in duration-200">
+            <div className="w-full max-w-sm rounded-3xl glass p-6 relative shadow-player border border-border/30 animate-in scale-in duration-300">
+              <button
+                onClick={() => setTrackToAddToPlaylist(null)}
+                className="absolute top-4 right-4 text-muted-foreground hover:text-foreground p-1 rounded-full hover:bg-accent/50 transition-colors"
+              >
+                <X className="size-5" />
+              </button>
+              <h3 className="text-sm font-bold truncate text-foreground mb-4">
+                Adicionar a playlist
+              </h3>
+              <div className="mt-2 space-y-1 max-h-56 overflow-y-auto scroll-area">
+                {(playlistsQuery.data || []).map(
+                  (p: { id: string; name: string; description: string | null }) => (
+                    <button
+                      key={p.id}
+                      onClick={() =>
+                        addTrackToPlaylistMutation.mutate({
+                          playlistId: p.id,
+                          track: trackToAddToPlaylist,
+                        })
+                      }
+                      className="w-full text-left p-3 rounded-xl glass hover:bg-accent/50 text-sm transition-all border border-border/30 flex items-center gap-3"
+                    >
+                      <div className="size-8 rounded-lg bg-primary/10 flex items-center justify-center flex-shrink-0">
+                        <ListMusic className="size-4 text-primary" />
+                      </div>
+                      <span className="truncate font-medium text-foreground">{p.name}</span>
+                    </button>
+                  ),
+                )}
+                {(playlistsQuery.data || []).length === 0 && (
+                  <p className="text-sm text-muted-foreground text-center py-4">
+                    Nenhuma playlist criada ainda
+                  </p>
+                )}
+              </div>
             </div>
           </div>
-        </div>
-      )}
+        )}
       </div>
     </div>
   );

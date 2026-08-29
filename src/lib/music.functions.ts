@@ -1,4 +1,3 @@
-import { createServerFn } from "@tanstack/react-start";
 import {
   FALLBACK_SHELVES,
   HOME_SHELVES,
@@ -11,16 +10,13 @@ import {
 
 export type { Track };
 
-export const searchTracks = createServerFn({ method: "GET" })
-  .inputValidator((input: { query: string }) => ({
-    query: String(input.query ?? "").slice(0, 120),
-  }))
-  .handler(async ({ data }) => {
-    if (!data.query.trim()) return [] as Track[];
-    return searchMusic(data.query, 30);
-  });
+export async function searchTracks(input: { query: string }): Promise<Track[]> {
+  const query = String(input?.query ?? "").slice(0, 120);
+  if (!query.trim()) return [] as Track[];
+  return searchMusic(query, 30);
+}
 
-export const getHomeShelves = createServerFn({ method: "GET" }).handler(async () => {
+export async function getHomeShelves(): Promise<{ title: string; tracks: Track[] }[]> {
   const data = await Promise.allSettled(
     HOME_SHELVES.map(async (s, index) => {
       const tracks = await itunes(s.term, 12);
@@ -35,22 +31,16 @@ export const getHomeShelves = createServerFn({ method: "GET" }).handler(async ()
       result.status === "fulfilled" ? result.value : FALLBACK_SHELVES[index],
     )
     .filter((s): s is NonNullable<typeof s> => Boolean(s?.tracks.length));
-});
+}
 
-export const getTopTrending = createServerFn({ method: "GET" })
-  .inputValidator((input: { limit?: number }) => ({
-    limit: Number(input.limit ?? 20),
-  }))
-  .handler(async ({ data }) => {
-    return itunesTopSongs(data.limit, "br");
-  });
+export async function getTopTrending(input: { limit?: number } = {}): Promise<Track[]> {
+  const limit = Number(input.limit ?? 20);
+  return itunesTopSongs(limit, "br");
+}
 
-export const findYouTubeAudio = createServerFn({ method: "GET" })
-  .inputValidator((input: { title: string; artist: string }) => ({
-    title: String(input.title ?? "").slice(0, 120),
-    artist: String(input.artist ?? "").slice(0, 120),
-  }))
-  .handler(async ({ data }) => {
-    const videoId = await youtubeSearchVideoId(`${data.title} ${data.artist} audio`);
-    return { videoId };
-  });
+export async function findYouTubeAudio(input: { title: string; artist: string }): Promise<{ videoId: string | null }> {
+  const title = String(input?.title ?? "").slice(0, 120);
+  const artist = String(input?.artist ?? "").slice(0, 120);
+  const videoId = await youtubeSearchVideoId(`${title} ${artist} audio`);
+  return { videoId };
+}

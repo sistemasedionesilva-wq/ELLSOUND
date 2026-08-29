@@ -49,7 +49,8 @@ export function YouTubeAudio({
   videoId: string | null;
   playing: boolean;
   volume: number;
-  onProgress: (current: number, duration: number) => void;
+  /** Called every 500ms with current playback position */
+  onProgress: (progress: { current: number; duration: number }) => void;
   onEnded: () => void;
   unlockRef?: { current: (() => void) | null };
   seekRef?: { current: ((seconds: number) => void) | null };
@@ -64,6 +65,7 @@ export function YouTubeAudio({
   const endedRef = useRef(onEnded);
   endedRef.current = onEnded;
 
+  // Initialize YouTube IFrame Player once
   useEffect(() => {
     let cancelled = false;
     void loadApi().then(() => {
@@ -83,11 +85,10 @@ export function YouTubeAudio({
                 playerRef.current?.playVideo();
                 onPlayStarted?.();
               } catch {
-                /* player not ready */
+                /* ignore */
               }
               return;
             }
-            // Play if user explicitly requested it (preserves gesture context)
             if ((playing || userRequestedPlay) && videoId) {
               playerRef.current?.playVideo();
               onPlayStarted?.();
@@ -99,41 +100,29 @@ export function YouTubeAudio({
         },
       });
     });
-    return () => {
-      cancelled = true;
-    };
-  }, [onPlayStarted, playing, userRequestedPlay, videoId]);
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
+  // Expose unlock function for mobile gesture unlock
   useEffect(() => {
     if (!unlockRef) return;
-    // Mobile browsers only allow playback started from a real user gesture, so we
-    // expose a synchronous unlock the click handler can call before async work.
     unlockRef.current = () => {
-      try {
-        playerRef.current?.playVideo();
-      } catch {
-        /* player not ready */
-      }
+      try { playerRef.current?.playVideo(); } catch { /* ignore */ }
     };
-    return () => {
-      unlockRef.current = null;
-    };
+    return () => { unlockRef.current = null; };
   }, [unlockRef]);
 
+  // Expose seek function
   useEffect(() => {
     if (!seekRef) return;
     seekRef.current = (seconds: number) => {
-      try {
-        playerRef.current?.seekTo(seconds, true);
-      } catch {
-        /* player not ready */
-      }
+      try { playerRef.current?.seekTo(seconds, true); } catch { /* ignore */ }
     };
-    return () => {
-      seekRef.current = null;
-    };
+    return () => { seekRef.current = null; };
   }, [seekRef]);
 
+  // Load new video when videoId changes
   useEffect(() => {
     const player = playerRef.current;
     if (!player || !videoId) return;
@@ -145,7 +134,6 @@ export function YouTubeAudio({
       }
       try {
         player.loadVideoById(videoId);
-        // Play if user requested playback (handles both initial play and track changes)
         if (playing || userRequestedPlay) {
           player.playVideo();
           onPlayStarted?.();
@@ -156,20 +144,17 @@ export function YouTubeAudio({
     }
   }, [videoId, playing, userRequestedPlay, onPlayStarted]);
 
+  // Sync play/pause state
   useEffect(() => {
     const player = playerRef.current;
     if (!player || !videoId || currentId.current !== videoId || !readyRef.current) return;
     try {
-      if (playing) {
-        player.playVideo();
-      } else {
-        player.pauseVideo();
-      }
-    } catch {
-      /* player not ready */
-    }
+      if (playing) { player.playVideo(); }
+      else { player.pauseVideo(); }
+    } catch { /* ignore */ }
   }, [playing, videoId]);
 
+  // Poll for progress and volume updates
   useEffect(() => {
     const timer = window.setInterval(() => {
       const player = playerRef.current;
@@ -177,10 +162,11 @@ export function YouTubeAudio({
       try {
         player.setVolume(volume);
         if (!playing) player.pauseVideo();
-        onProgress({ current: player.getCurrentTime() ?? 0, duration: player.getDuration() ?? 0 });
-      } catch {
-        /* player not ready */
-      }
+        onProgress({
+          current: player.getCurrentTime() ?? 0,
+          duration: player.getDuration() ?? 0,
+        });
+      } catch { /* ignore */ }
     }, 500);
     return () => window.clearInterval(timer);
   }, [playing, volume, onProgress]);
