@@ -6,7 +6,7 @@ interface NativeAudioPlayerProps {
   src: string | null;
   playing: boolean;
   volume: number;
-  onProgress: (current: number, duration: number) => void;
+  onProgress: (progress: { current: number; duration: number }) => void;
   onEnded: () => void;
   onPlayStarted?: () => void;
   onError?: (error: Error) => void;
@@ -59,7 +59,7 @@ export function NativeAudioPlayer({
   const initializeNativeAudio = async (src: string) => {
     try {
       if (!nativeInitializedRef.current) {
-        await NativeAudio.configure({
+        await (NativeAudio.configure as any)({
           focus: true,
           background: true,
           backgroundPlayback: true,
@@ -114,7 +114,7 @@ export function NativeAudioPlayer({
 
       audio.addEventListener('canplay', () => {
         if (playing) {
-          playPromiseRef.current = audio.play().catch(() => {});
+          playPromiseRef.current = audio.play().catch(() => { });
         }
       });
     }
@@ -189,9 +189,9 @@ export function NativeAudioPlayer({
               NativeAudio.getCurrentTime({ assetId: ASSET_ID }),
               NativeAudio.getDuration({ assetId: ASSET_ID }),
             ]);
-            onProgress({ 
-              current: currentResult.currentTime || 0, 
-              duration: durationResult.duration || 0 
+            onProgress({
+              current: currentResult.currentTime || 0,
+              duration: durationResult.duration || 0
             });
           } catch (err) {
             console.warn('Native progress error:', err);
@@ -220,7 +220,7 @@ export function NativeAudioPlayer({
 
   const seek = useCallback((seconds: number) => {
     if (isNative) {
-      NativeAudio.seek({ assetId: ASSET_ID, time: seconds });
+      (NativeAudio as any).seek({ assetId: ASSET_ID, time: seconds });
     } else {
       const audio = audioRef.current;
       if (audio && !isNaN(seconds)) {

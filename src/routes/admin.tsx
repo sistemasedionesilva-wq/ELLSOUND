@@ -108,7 +108,7 @@ function AdminPage() {
 
   useEffect(() => {
     if (!isSupabaseConfigured || !supabase) return;
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session } }: any) => {
       setUser(session?.user ? { id: session.user.id, email: session.user.email ?? "" } : null);
       setAuthReady(true);
     });
@@ -390,11 +390,10 @@ function AdminPage() {
                       )
                     }
                     variant="outline"
-                    className={`h-7 px-3 text-[11px] rounded-full ${
-                      u.blocked
+                    className={`h-7 px-3 text-[11px] rounded-full ${u.blocked
                         ? "border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/10"
                         : "border-destructive/30 text-destructive hover:bg-destructive/10"
-                    }`}
+                      }`}
                   >
                     <Ban className="size-3 mr-1" />
                     {u.blocked ? "Desbloquear" : "Bloquear"}

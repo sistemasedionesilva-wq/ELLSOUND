@@ -7,7 +7,7 @@
 import { defineConfig } from "@lovable.dev/vite-tanstack-config";
 
 export default defineConfig({
-  tanstackStart: false,
+  // removed
   vite: {
     server: {
       host: "0.0.0.0",

@@ -289,12 +289,12 @@ function Index() {
   // Monitorar Autenticação
   useEffect(() => {
     if (!isSupabaseConfigured) return;
-    supabase.auth.getSession().then(({ data: { session } }) => {
+    supabase.auth.getSession().then(({ data: { session } }: any) => {
       setUser(session?.user ?? null);
     });
     const {
       data: { subscription },
-    } = supabase.auth.onAuthStateChange((_event, session) => {
+    } = supabase.auth.onAuthStateChange((_event: any, session: any) => {
       setUser(session?.user ?? null);
     });
     return () => subscription.unsubscribe();
@@ -374,7 +374,7 @@ function Index() {
         .select("*")
         .order("created_at", { ascending: false });
       if (error) throw error;
-      return (data || []).map((item) => ({
+      return (data || []).map((item: any) => ({
         id: item.track_id,
         title: item.title,
         artist: item.artist,
@@ -418,7 +418,7 @@ function Index() {
         .eq("playlist_id", selectedPlaylistId)
         .order("added_at", { ascending: true });
       if (error) throw error;
-      return (data || []).map((item) => ({
+      return (data || []).map((item: any) => ({
         id: item.track_id,
         title: item.title,
         artist: item.artist,
@@ -508,7 +508,7 @@ function Index() {
       }
       const { data, error } = await supabase
         .from("playlists")
-        .insert({ user_id: user.id, name, description: desc })
+        .insert({ user_id: user!.id, name, description: desc })
         .select()
         .single();
       if (error) throw error;
@@ -976,7 +976,7 @@ function Index() {
         toast.success("Cadastro efetuado");
       }
       setShowAuthModal(false);
-    } catch (err: Error) {
+    } catch (err: any) {
       toast.error(err.message || "Erro de login");
     } finally {
       setAuthLoading(false);
@@ -1367,7 +1367,7 @@ function Index() {
                         description="Tente outro gênero ou verifique sua conexão"
                       />
                     ) : (
-                      filteredHomeTracks.map((t, idx) => (
+                      filteredHomeTracks.map((t: Track, idx: number) => (
                         <TrackCard
                           key={t.id}
                           track={t}

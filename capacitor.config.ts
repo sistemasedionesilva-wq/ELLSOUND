@@ -44,6 +44,10 @@ const config: CapacitorConfig = {
     App: {
       launchUrl: '/',
     },
+    NativeAudio: {
+      backgroundPlayback: true,
+      showNotification: true,
+    },
   },
 };
 
