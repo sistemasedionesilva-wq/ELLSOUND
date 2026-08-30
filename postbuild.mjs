@@ -1,21 +1,25 @@
 import fs from "node:fs";
 import path from "node:path";
 
-if (process.env.VERCEL || process.env.VERCEL_ENV) {
-  console.log("Skipping postbuild on Vercel (Nitro handles HTML rendering).");
-  process.exit(0);
+const candidates = [
+  ".vercel/output/static/assets",
+  "dist/client/assets",
+];
+const assetsDir = candidates.find((p) => fs.existsSync(p));
+
+if (!assetsDir) {
+  console.error("Assets directory not found. Looked in:", candidates);
+  process.exit(1);
 }
 
-const distDir = path.resolve("dist/client");
-const assetsDir = path.join(distDir, "assets");
-
-if (!fs.existsSync(assetsDir)) {
-  console.error("Assets directory not found:", assetsDir);
+const rootIndex = path.resolve("index.html");
+if (!fs.existsSync(rootIndex)) {
+  console.error("Root index.html not found:", rootIndex);
   process.exit(1);
 }
 
 const files = fs.readdirSync(assetsDir);
-const mainJs = files.find((f) => /^index-.*\.js$/.test(f));
+const mainJs = files.find((f) => /^index-.*\.js$/.test(f)) ?? files.find((f) => /^dist-.*\.js$/.test(f));
 const css = files.find((f) => f.endsWith(".css"));
 
 if (!mainJs) {
@@ -49,6 +53,5 @@ const html = `<!DOCTYPE html>
 </html>
 `;
 
-const outPath = path.join(distDir, "index.html");
-fs.writeFileSync(outPath, html, "utf8");
-console.log("Generated:", outPath, "with bundle:", mainJs);
+fs.writeFileSync(rootIndex, html, "utf8");
+console.log("Updated template:", rootIndex, "with bundle:", mainJs);
