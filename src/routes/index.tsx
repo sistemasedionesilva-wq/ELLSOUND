@@ -601,9 +601,10 @@ function Index() {
           setPlaying(true);
           setupMediaSession(track);
         } else {
-          toast.error("Música não encontrada");
+          toast.error("Música não encontrada no YouTube");
         }
-      } catch {
+      } catch (err) {
+        console.warn("findYouTubeAudio failed:", err);
         toast.error("Erro ao buscar música");
       }
     },
