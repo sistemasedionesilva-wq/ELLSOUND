@@ -336,31 +336,17 @@ export async function itunesTopSongs(limit = 20, country = "br"): Promise<Track[
 
 export async function youtubeSearchVideoId(q: string): Promise<string | null> {
   try {
-    const res = await fetch(
-      `https://www.youtube.com/results?search_query=${encodeURIComponent(q)}&sp=EgIQAQ%253D%253D`,
-      {
-        headers: {
-          "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36",
-          "Accept-Language": "pt-BR,pt;q=0.9,en;q=0.8",
-          Cookie: "CONSENT=YES+cb; SOCS=CAESEwgDEgk0ODE3Nzk3MjQaAmVuIAEaBgiA_LyuBg",
-        },
-      },
-    );
+    const base = (import.meta as any)?.env?.VITE_BACKEND_URL || "";
+    const url = `${base}/api/youtube-search?q=${encodeURIComponent(q)}`;
+    const res = await fetch(url);
     if (!res.ok) {
       console.warn("[youtubeSearchVideoId] non-OK status:", res.status);
       return null;
     }
-    const html = await res.text();
-    const patterns = [
-      /"videoId":"([A-Za-z0-9_-]{11})"/,
-      /\/watch\?v=([A-Za-z0-9_-]{11})/,
-    ];
-    for (const re of patterns) {
-      const match = html.match(re);
-      if (match?.[1]) return match[1];
-    }
-    console.warn("[youtubeSearchVideoId] no match in HTML (length=" + html.length + ")");
+    const data = await res.json();
+    const first = data?.results?.[0];
+    if (first?.videoId) return first.videoId as string;
+    console.warn("[youtubeSearchVideoId] no results in response");
     return null;
   } catch (err) {
     console.warn("[youtubeSearchVideoId] fetch failed:", (err as Error)?.message ?? err);
