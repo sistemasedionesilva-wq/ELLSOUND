@@ -1,6 +1,11 @@
 import fs from "node:fs";
 import path from "node:path";
 
+if (process.env.VERCEL || process.env.VERCEL_ENV) {
+  console.log("Skipping postbuild on Vercel (Nitro handles HTML rendering).");
+  process.exit(0);
+}
+
 const distDir = path.resolve("dist/client");
 const assetsDir = path.join(distDir, "assets");
 
