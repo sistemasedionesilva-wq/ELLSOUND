@@ -10,6 +10,11 @@ import {
 
 export type { Track };
 
+export type YouTubeAudioResult = {
+  videoId: string | null;
+  reason?: "not-found" | "search-failed";
+};
+
 export async function searchTracks(input: { query: string }): Promise<Track[]> {
   const query = String(input?.query ?? "").slice(0, 120);
   if (!query.trim()) return [] as Track[];
@@ -38,9 +43,14 @@ export async function getTopTrending(input: { limit?: number } = {}): Promise<Tr
   return itunesTopSongs(limit, "br");
 }
 
-export async function findYouTubeAudio(input: { title: string; artist: string }): Promise<{ videoId: string | null }> {
+export async function findYouTubeAudio(input: { title: string; artist: string }): Promise<YouTubeAudioResult> {
   const title = String(input?.title ?? "").slice(0, 120);
   const artist = String(input?.artist ?? "").slice(0, 120);
-  const videoId = await youtubeSearchVideoId(`${title} ${artist} audio`);
-  return { videoId };
+  try {
+    const videoId = await youtubeSearchVideoId(`${title} ${artist} audio`);
+    return videoId ? { videoId } : { videoId: null, reason: "not-found" };
+  } catch (err) {
+    console.warn("[findYouTubeAudio] failed:", err);
+    return { videoId: null, reason: "search-failed" };
+  }
 }

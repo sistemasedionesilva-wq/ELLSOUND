@@ -48,7 +48,7 @@ import {
   getHomeShelves,
   searchTracks,
   type Track,
-} from "@/lib/music.functions";
+} from "@/lib/music.api";
 import { supabase, isSupabaseConfigured } from "@/lib/supabaseClient";
 import { toast, Toaster } from "sonner";
 import {
@@ -601,11 +601,15 @@ function Index() {
           setPlaying(true);
           setupMediaSession(track);
         } else {
-          toast.error("Música não encontrada no YouTube");
+          toast.error(
+            res.reason === "search-failed"
+              ? "Erro ao buscar música. Verifique a conexão ou a chave do YouTube."
+              : "Música não encontrada no YouTube",
+          );
         }
       } catch (err) {
         console.warn("findYouTubeAudio failed:", err);
-        toast.error("Erro ao buscar música");
+        toast.error("Erro ao buscar música. Tente novamente.");
       }
     },
     [setupMediaSession, addToRecentlyPlayed],

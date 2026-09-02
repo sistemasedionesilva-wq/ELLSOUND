@@ -12,12 +12,6 @@ if (!assetsDir) {
   process.exit(1);
 }
 
-const rootIndex = path.resolve("index.html");
-if (!fs.existsSync(rootIndex)) {
-  console.error("Root index.html not found:", rootIndex);
-  process.exit(1);
-}
-
 const files = fs.readdirSync(assetsDir);
 const mainJs = files.find((f) => /^index-.*\.js$/.test(f)) ?? files.find((f) => /^dist-.*\.js$/.test(f));
 const css = files.find((f) => f.endsWith(".css"));
@@ -53,5 +47,13 @@ const html = `<!DOCTYPE html>
 </html>
 `;
 
-fs.writeFileSync(rootIndex, html, "utf8");
-console.log("Updated template:", rootIndex, "with bundle:", mainJs);
+const staticIndex = path.resolve("index.html");
+fs.writeFileSync(staticIndex, html, "utf8");
+console.log("Updated template:", staticIndex, "with bundle:", mainJs);
+
+// Copia também para .vercel/output/static/index.html (preset vercel do Nitro)
+const vercelStaticIndex = path.resolve(".vercel/output/static/index.html");
+if (fs.existsSync(path.dirname(vercelStaticIndex))) {
+  fs.writeFileSync(vercelStaticIndex, html, "utf8");
+  console.log("Updated template:", vercelStaticIndex, "with bundle:", mainJs);
+}
