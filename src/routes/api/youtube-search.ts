@@ -11,7 +11,7 @@ export const Route = createFileRoute("/api/youtube-search")({
 
         const headers = {
           "Access-Control-Allow-Origin": "*",
-          "Cache-Control": "public, max-age=300",
+          "Cache-Control": "public, max-age=60",
           "Content-Type": "application/json",
         };
 
@@ -25,10 +25,11 @@ export const Route = createFileRoute("/api/youtube-search")({
         const yt = new URL("https://www.googleapis.com/youtube/v3/search");
         yt.searchParams.set("part", "snippet");
         yt.searchParams.set("type", "video");
-        yt.searchParams.set("videoCategoryId", "10");
-        yt.searchParams.set("maxResults", "5");
+        yt.searchParams.set("maxResults", "10");
         yt.searchParams.set("q", q);
         yt.searchParams.set("key", GOOGLE_API_KEY);
+        yt.searchParams.set("relevanceLanguage", "pt");
+        yt.searchParams.set("regionCode", "BR");
 
         try {
           const r = await fetch(yt.toString());
@@ -46,6 +47,9 @@ export const Route = createFileRoute("/api/youtube-search")({
               thumbnail: it.snippet?.thumbnails?.high?.url || it.snippet?.thumbnails?.default?.url,
             }))
             .filter((v: any) => v.videoId);
+          if (results.length === 0) {
+            console.warn("[youtube-search] empty results for q=", q);
+          }
           return new Response(JSON.stringify({ query: q, results }), { status: 200, headers });
         } catch (err) {
           console.error("[youtube-search] failed", err);

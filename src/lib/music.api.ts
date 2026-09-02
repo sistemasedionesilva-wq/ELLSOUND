@@ -43,12 +43,35 @@ export async function getTopTrending(input: { limit?: number } = {}): Promise<Tr
   return itunesTopSongs(limit, "br");
 }
 
+function sanitizeQuery(input: string): string {
+  return String(input ?? "")
+    .replace(/\s*\((?:feat\.?|featuring)\s+[^)]+\)/gi, "")
+    .replace(/\s*\[[^\]]+\]/g, "")
+    .replace(/[\\/]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 export async function findYouTubeAudio(input: { title: string; artist: string }): Promise<YouTubeAudioResult> {
-  const title = String(input?.title ?? "").slice(0, 120);
-  const artist = String(input?.artist ?? "").slice(0, 120);
+  const rawTitle = String(input?.title ?? "");
+  const rawArtist = String(input?.artist ?? "");
+  const title = sanitizeQuery(rawTitle).slice(0, 100);
+  const artist = sanitizeQuery(rawArtist).slice(0, 100);
+  if (!title) return { videoId: null, reason: "not-found" };
+
+  const queries = [
+    `${title} ${artist}`.trim(),
+    `${title} ${artist} lyrics`.trim(),
+    `${title} ${artist} official`.trim(),
+    title,
+  ].filter((q, i, arr) => q && arr.indexOf(q) === i);
+
   try {
-    const videoId = await youtubeSearchVideoId(`${title} ${artist} audio`);
-    return videoId ? { videoId } : { videoId: null, reason: "not-found" };
+    for (const q of queries) {
+      const videoId = await youtubeSearchVideoId(q);
+      if (videoId) return { videoId };
+    }
+    return { videoId: null, reason: "not-found" };
   } catch (err) {
     console.warn("[findYouTubeAudio] failed:", err);
     return { videoId: null, reason: "search-failed" };
