@@ -1,6 +1,6 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useCallback, useEffect, useMemo, useRef, useState, Suspense } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useMutation, useQuery } from "@tanstack/react-query";
 import {
   Home,
   Search,
@@ -331,6 +331,9 @@ function Index() {
     queryKey: ["search", submitted],
     queryFn: () => searchTracks({ query: submitted }),
     enabled: submitted.trim().length > 0,
+    placeholderData: keepPreviousData,
+    staleTime: 1000 * 30,
+    gcTime: 1000 * 60 * 5,
   });
 
   // Em alta agora — busca direto do cliente para evitar CORS
@@ -637,7 +640,7 @@ function Index() {
     skipRef.current = skip;
   }, [skip]);
 
-  const handleAudioEnded = () => {
+  const handleAudioEnded = useCallback(() => {
     if (repeatEnabled) {
       if (seekRef.current) {
         seekRef.current(0);
@@ -645,7 +648,18 @@ function Index() {
       return;
     }
     skip(1);
-  };
+  }, [repeatEnabled, skip]);
+
+  const handlePlayerProgress = useCallback(
+    ({ current, duration }: { current: number; duration: number }) => {
+      setProgress({ current, duration });
+    },
+    [],
+  );
+
+  const handlePlayStarted = useCallback(() => {
+    setUserRequestedPlay(false);
+  }, []);
 
   // Wake Lock - impede tela desligar durante reprodução
   const wakeLockRef = useRef<WakeLockSentinel | null>(null);
@@ -1045,9 +1059,9 @@ function Index() {
             src={nativeAudioSrc}
             playing={playing}
             volume={volume}
-            onProgress={({ current, duration }) => setProgress({ current, duration })}
+            onProgress={handlePlayerProgress}
             onEnded={handleAudioEnded}
-            onPlayStarted={() => setUserRequestedPlay(false)}
+            onPlayStarted={handlePlayStarted}
             onError={(err) => {
               console.error('Native audio error:', err);
               setPlayerSource("youtube");
@@ -1062,12 +1076,12 @@ function Index() {
             videoId={videoId}
             playing={playing}
             volume={volume}
-            onProgress={({ current, duration }) => setProgress({ current, duration })}
+            onProgress={handlePlayerProgress}
             onEnded={handleAudioEnded}
             unlockRef={unlockRef}
             seekRef={seekRef}
             userRequestedPlay={userRequestedPlay}
-            onPlayStarted={() => setUserRequestedPlay(false)}
+            onPlayStarted={handlePlayStarted}
           />
         )}
       </Suspense>

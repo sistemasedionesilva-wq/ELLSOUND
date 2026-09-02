@@ -236,14 +236,15 @@ export const FALLBACK_SHELVES: Array<{ title: string; tracks: Track[] }> = [
 ];
 
 export async function searchMusic(term: string, limit = 30): Promise<Track[]> {
-  const brazilResults = await itunes(term, limit, "BR");
-  if (brazilResults.length > 0) return brazilResults;
+  const [brazilResults, internationalResults, deezerResults] = await Promise.allSettled([
+    itunes(term, limit, "BR"),
+    itunes(term, limit, "US"),
+    deezer(term, limit),
+  ]);
 
-  const internationalResults = await itunes(term, limit, "US");
-  if (internationalResults.length > 0) return internationalResults;
-
-  const deezerResults = await deezer(term, limit);
-  if (deezerResults.length > 0) return deezerResults;
+  if (brazilResults.status === "fulfilled" && brazilResults.value.length > 0) return brazilResults.value;
+  if (internationalResults.status === "fulfilled" && internationalResults.value.length > 0) return internationalResults.value;
+  if (deezerResults.status === "fulfilled" && deezerResults.value.length > 0) return deezerResults.value;
 
   const normalized = term.trim().toLocaleLowerCase("pt-BR");
   const fallback = FALLBACK_SHELVES.flatMap((shelf) => shelf.tracks);
